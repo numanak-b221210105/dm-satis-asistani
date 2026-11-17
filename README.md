@@ -107,7 +107,7 @@ Tek kurulum birçok işletmeye hizmet veriyor. Her işletmenin kataloğu, üslub
 <td valign="top">
 
 ### 🌍 Çok dilli
-Müşteriye kendi dilinde cevap veriyor (Türkçe, İngilizce, Sırpça, Romence ve 12 dil daha). Sırpçada müşterinin kullandığı alfabeyi (Latin/Kiril) koruyor. İşletme sahibine bildirimler ise kendi dilinde, müşterinin dili belirtilerek gidiyor.
+Müşteriye kendi dilinde cevap veriyor (Türkçe, İngilizce, Sırpça, Romence, Hırvatça ve 11 dil daha). Sırpçada müşterinin kullandığı alfabeyi (Latin/Kiril) koruyor. İşletme sahibine bildirimler ise kendi dilinde, müşterinin dili belirtilerek gidiyor.
 
 </td>
 <td valign="top">
@@ -128,6 +128,20 @@ Instagram bağlantısını 60 günde bir otomatik yeniliyor. Her işletmenin yap
 
 ### 🧾 Hazır sipariş özeti
 Sipariş tamamlanınca işletme sahibine ürün, müşteri bilgileri, müşterinin dili ve kısa bir not içeren düzenli bir özet gidiyor.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 📲 WhatsApp'a köprü
+Sipariş oluşunca müşteriye, sipariş bilgileri yazılmış hazır bir WhatsApp linki veriliyor. Özel ölçü, pazarlık ya da toptan gibi satıcının kararı gereken konularda müşteri, mesajı kendi dilinde hazırlanmış bir linkle satıcının WhatsApp hattına yönlendiriliyor.
+
+</td>
+<td valign="top">
+
+### 🧭 Kurulum sihirbazı
+İşletme sahibine sektör, diller, para birimi (EUR, USD, TRY...), kargo/iade şartları ve WhatsApp numaraları soruluyor. Asistan cevaplara göre kendini ayarlıyor; sektöre uygun sipariş alanları otomatik geliyor.
 
 </td>
 </tr>
@@ -208,6 +222,10 @@ app/
 ├── meta.py          Instagram API · WhatsApp Cloud API · imza doğrulama
 ├── admin.py         Yönetim API'si: işletmeler, ürünler, siparişler, sohbetler, kullanım
 ├── maintenance.py   Periyodik token yenileme
+├── onboarding.py    Kurulum sihirbazı soruları ve sektör şablonları
+├── languages.py     Desteklenen diller ve yedek mesaj çevirileri
+├── currencies.py    Para birimleri ve fiyat gösterimi
+├── whatsapp_link.py Müşteri için hazır mesajlı wa.me bağlantıları
 ├── crypto.py        Token şifreleme (Fernet)
 └── db.py            SQLAlchemy 2 (async) modelleri
 migrations/          Alembic şema geçişleri
@@ -250,11 +268,17 @@ uvicorn app.main:app --reload                          # → http://localhost:80
 ```
 
 ```bash
-pytest -q        # 18 test · gerçek API'ye bağlanmaz
+pytest -q        # 24 test · gerçek API'ye bağlanmaz
+```
+
+Yeni işletme eklemenin en kolay yolu kurulum sihirbazı:
+
+```bash
+python scripts/kurulum_sihirbazi.py http://localhost:8000 $ADMIN_TOKEN
 ```
 
 <details>
-<summary><b>Örnek: yeni işletme ekleme</b></summary>
+<summary><b>Örnek: API ile işletme ekleme</b></summary>
 
 ```bash
 curl -X POST localhost:8000/admin/tenants \
@@ -291,6 +315,8 @@ curl -X POST localhost:8000/admin/tenants \
 - [x] Çok işletmeli çekirdek ve dinamik sipariş alanları
 - [x] Görsel anlama, token yenileme, kullanım takibi, Alembic, CI
 - [x] Çok dilli destek (müşteri dilinde cevap, esnafa kendi dilinde özet)
+- [x] Para birimi seçimi, WhatsApp yönlendirme, kurulum sihirbazı
+- [ ] TikTok DM kanalı (TikTok Business Messaging API)
 - [ ] Gerçek bir işletmeyle canlı pilot
 - [ ] İşletme paneli ve "Instagram ile bağlan" ile kendi kendine kayıt
 - [ ] Paketler ve ödeme altyapısı

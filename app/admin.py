@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 
+from app import currencies as C
 from app import languages as L
 from app.config import get_settings
 from app.crypto import encrypt
@@ -41,6 +42,18 @@ class TenantIn(BaseModel):
     active: bool = True
     languages: list[str] | None = None        # Ör. ["tr", "en", "sr", "ro"]
     owner_language: str | None = None         # Bildirim özetlerinin dili (varsayılan tr)
+    currency: str | None = None               # "EUR", "USD", "TRY"...
+    customer_whatsapp: str | None = Field(None, pattern=r"^(\d{10,15})?$")   # Müşterilerin yazacağı hat
+
+    @field_validator("currency")
+    @classmethod
+    def _cur(cls, v):
+        if v is None:
+            return v
+        v = v.upper()
+        if not C.is_valid(v):
+            raise ValueError(f"Geçersiz para birimi: {v}. Desteklenenler: {', '.join(C.CURRENCIES)}")
+        return v
 
     @field_validator("languages")
     @classmethod
@@ -72,6 +85,18 @@ class TenantPatch(BaseModel):
     active: bool | None = None
     languages: list[str] | None = None
     owner_language: str | None = None
+    currency: str | None = None
+    customer_whatsapp: str | None = Field(None, pattern=r"^(\d{10,15})?$")
+
+    @field_validator("currency")
+    @classmethod
+    def _cur(cls, v):
+        if v is None:
+            return v
+        v = v.upper()
+        if not C.is_valid(v):
+            raise ValueError(f"Geçersiz para birimi: {v}. Desteklenenler: {', '.join(C.CURRENCIES)}")
+        return v
 
     @field_validator("languages")
     @classmethod
@@ -112,6 +137,7 @@ def tenant_out(t: Tenant) -> dict:
             "policies": t.policies, "tone": t.tone, "notify_whatsapp": t.notify_whatsapp,
             "order_fields": t.order_fields, "humanizer_enabled": t.humanizer_enabled, "active": t.active,
             "languages": t.languages or L.DEFAULT_LANGUAGES, "owner_language": t.owner_language or "tr",
+            "currency": t.currency or "TRY", "customer_whatsapp": t.customer_whatsapp,
             "instagram": {"bagli": bool(t.ig_token_enc), "hesap_id": t.ig_account_id,
                           "kullanici_adi": t.ig_username,
                           "token_bitis": t.ig_token_expires_at.isoformat() if t.ig_token_expires_at else None}}
@@ -246,3 +272,21 @@ async def usage(tenant_id: int, days: int = 30):
 @router.get("/languages", tags=["admin"])
 async def supported_languages():
     return [{"kod": k, "ad": v[0], "bayrak": v[1]} for k, v in L.LANGUAGES.items()]
+
+
+# ---------- Kurulum sihirbazı ----------
+
+@router.get("/onboarding")
+async def onboarding_questions():
+    """Esnafa sorulacak kurulum soruları (komut satırı sihirbazı ve web paneli bunu kullanır)."""
+    from app.onboarding import QUESTIONS, SECTOR_PRESETS
+    return {"sorular": QUESTIONS, "sektor_sablonlari": SECTOR_PRESETS}
+
+
+@router.post("/onboarding")
+async def onboarding_create(answers: dict):
+    """Sihirbaz cevaplarından yeni işletme oluşturur."""
+    from app.onboarding import build_tenant
+    if not (answers.get("name") or "").strip():
+        raise HTTPException(422, "İşletme adı zorunlu")
+    return await create_tenant(TenantIn(**build_tenant(answers)))

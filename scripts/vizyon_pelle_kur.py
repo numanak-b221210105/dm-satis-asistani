@@ -13,8 +13,10 @@ tenant = httpx.post(f"{base}/admin/tenants", headers=H, json={
     "description": "Hakiki deri ve kürk ürünler satan butik marka.",   # ← detaylandırın
     "policies": "",   # ← kargo / iade / ödeme şartları; yurt dışı kargo ücreti ve fiyatların para birimini (EUR/TRY) mutlaka yazın
     "tone": "samimi, kibar, kısa cümleler",
-    "languages": ["tr", "sr", "ro", "en"],   # Sırbistan ve Romanya ağırlıklı müşteriler
+    "languages": ["tr", "sr", "ro", "hr", "en"],   # Sırbistan, Romanya, Hırvatistan ağırlıklı müşteriler
     "owner_language": "tr",                  # Bildirim özetleri Türkçe gelir
+    "currency": "EUR",                       # ← EUR veya USD
+    "customer_whatsapp": None,               # ← müşterilerin yazacağı WhatsApp hattı, ör. "90XXXXXXXXXX"
     "notify_whatsapp": "90XXXXXXXXXX",                                # ← bildirim numarası
     "order_fields": [
         {"key": "boy", "label": "Boy (cm)", "required": True},

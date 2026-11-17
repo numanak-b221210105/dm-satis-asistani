@@ -49,6 +49,10 @@ class Tenant(Base):
     # Dil ayarları: müşterilere hangi dillerde hizmet verilir, esnafa bildirimler hangi dilde gider
     languages: Mapped[list | None] = mapped_column(JSON, nullable=True)            # ["tr","en","sr","ro"]
     owner_language: Mapped[str | None] = mapped_column(String(8), nullable=True)   # "tr"
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)         # "EUR", "USD", "TRY"...
+    # Müşterilerin yazabileceği WhatsApp numarası (bildirim numarasından farklı olabilir).
+    # Doluysa: sipariş özeti WhatsApp linkiyle paylaşılır ve satıcı fikri gereken konular WhatsApp'a yönlendirilir.
+    customer_whatsapp: Mapped[str | None] = mapped_column(String(20), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
@@ -60,6 +64,10 @@ def tenant_languages(t: "Tenant") -> list[str]:
 
 def tenant_owner_language(t: "Tenant") -> str:
     return t.owner_language or "tr"
+
+
+def tenant_currency(t: "Tenant") -> str:
+    return t.currency or "TRY"
 
 
 class Product(Base):

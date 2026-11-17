@@ -1,15 +1,16 @@
 """Esnafa göre dinamik oluşturulan sistem mesajı."""
 from app import languages as L
-from app.db import Product, Tenant, tenant_languages, tenant_owner_language
+from app.currencies import format_price
+from app.db import Product, Tenant, tenant_currency, tenant_languages, tenant_owner_language
 
 
-def catalog_text(products: list[Product]) -> str:
+def catalog_text(products: list[Product], currency: str = "TRY") -> str:
     if not products:
         return "(Katalog boş. Ürün/fiyat sorularında uydurma yapma, insana_aktar ile ekibe aktar.)"
     lines = []
     for p in products:
         stok = "" if p.in_stock else " | STOKTA YOK"
-        lines.append(f"- {p.name} | Kategori: {p.category or '-'} | Fiyat: {p.price or 'sorunuz'}"
+        lines.append(f"- {p.name} | Kategori: {p.category or '-'} | Fiyat: {format_price(p.price, currency)}"
                      f" | Seçenekler: {p.variants or '-'}{stok} | {p.description}")
     return "\n".join(lines)
 
@@ -19,6 +20,23 @@ def fields_text(tenant: Tenant) -> str:
     for f in tenant.order_fields:
         out.append(f"- {f['label']} ({'zorunlu' if f.get('required') else 'isteğe bağlı'}) → anahtar: {f['key']}")
     return "\n".join(out)
+
+
+def escalation_rules(tenant: Tenant) -> str:
+    if tenant.customer_whatsapp:
+        return """SATICIYA YÖNLENDİRME
+- Satıcının fikri / kararı gereken durumlarda `whatsappa_yonlendir` çağır: özel ölçü veya özel üretim,
+  pazarlık ve indirim talebi, toptan sipariş, katalogda olmayan ürün/renk, farklı para birimi,
+  ürün hakkında satıcının yorumu (hangisi daha iyi, kalıp nasıl vb.) ve cevabını bilmediğin sorular.
+  Aracın verdiği WhatsApp bağlantısını müşteriye AYNEN ilet ve satıcının oradan döneceğini söyle.
+- Şikayet, iade/değişim, ödeme sorunu veya müşteri sinirliyse `insana_aktar` çağır
+  (satıcı Instagram'dan yazar); müşteriye bir yetkilinin birazdan yazacağını söyle.
+- Sipariş oluşturulunca araç bir WhatsApp bağlantısı verir: müşteriye siparişi isterse bu
+  bağlantıdan WhatsApp'a da iletebileceğini söyle ve bağlantıyı aynen paylaş."""
+    return """SATICIYA YÖNLENDİRME
+- Şu durumlarda `insana_aktar` çağır: bilmediğin bir soru, şikayet, iade/değişim, ödeme sorunu,
+  özel/toptan sipariş, pazarlık, satıcının fikri gereken konular, müşteri yetkiliyle görüşmek istediğinde.
+  Aktardıktan sonra müşteriye bir yetkilinin birazdan yazacağını söyle."""
 
 
 def language_rules(tenant: Tenant) -> str:
@@ -33,8 +51,8 @@ def language_rules(tenant: Tenant) -> str:
 - Sırpça yazan müşteriye onun kullandığı alfabeyle (Latin veya Kiril) cevap ver; alfabeyi karıştırma.
 - Romence, Sırpça vb. dillerde özel harfleri (ș, ț, ă, č, ć, š, ž, đ) doğru kullan.
 - Katalog Türkçe olabilir: ürünü müşterinin dilinde anlat ama araçlara ürün adını katalogdaki haliyle yaz.
-- Fiyatları katalogda yazan para birimiyle ver. Kur çevirisi yapma; müşteri başka para birimi isterse
-  şartlarda yazıyorsa onu söyle, yazmıyorsa insana_aktar kullan.
+- Fiyatları her zaman katalogdaki para birimiyle ver. Kendin kur çevirisi yapma; müşteri başka para
+  birimi isterse şartlarda yazıyorsa onu söyle, yazmıyorsa satıcıya yönlendir.
 - Araçları çağırırken `musteri_dili` alanına müşterinin dilinin ISO kodunu (tr, en, sr, ro...) yaz.
 - İşletme sahibi {owner} konuşuyor: araçlardaki `ozet` ve `sebep` alanlarını {owner} yaz.
   Ad, adres, telefon gibi sipariş bilgilerini ise müşterinin yazdığı gibi bırak, çevirme."""
@@ -60,11 +78,13 @@ GÖREVİN
 4. Ürün ve zorunlu bilgiler tamamlanıp müşteri ONAYLADIĞINDA `siparis_olustur` aracını çağır,
    ardından siparişin alındığını ve işletmenin kısa süre içinde döneceğini söyle.
 
+PARA BİRİMİ
+Tüm fiyatlar {tenant_currency(tenant)} cinsindendir.
+
+{escalation_rules(tenant)}
+
 KURALLAR
 - Katalogda veya yukarıda yazmayan fiyat, stok, indirim, kargo süresi, iade şartı UYDURMA.
-- Şu durumlarda `insana_aktar` çağır: bilmediğin bir soru, şikayet, iade/değişim, ödeme sorunu,
-  toptan/özel sipariş, pazarlık ısrarı, müşteri yetkiliyle görüşmek istediğinde.
-  Aktardıktan sonra müşteriye bir yetkilinin birazdan yazacağını söyle.
 - Konu dışı isteklere kibarca yalnızca {tenant.name} ile ilgili konularda yardımcı olabileceğini söyle.
 - "Bot musun?" diye sorulursa dürüst ol: {tenant.name}'in dijital asistanı olduğunu söyle, istenirse yetkiliye aktar.
 - Kart numarası veya şifre isteme.
@@ -76,5 +96,5 @@ DİL
 {language_rules(tenant)}
 
 KATALOG
-{catalog_text(products)}
+{catalog_text(products, tenant_currency(tenant))}
 """

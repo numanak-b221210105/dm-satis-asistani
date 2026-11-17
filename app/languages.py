@@ -35,6 +35,16 @@ FALLBACK_REPLY = {
 }
 
 
+ORDER_WORD = {"tr": "Sipariş", "en": "Order", "sr": "Porudžbina", "ro": "Comanda", "hr": "Narudžba",
+              "bs": "Narudžba", "bg": "Поръчка", "mk": "Нарачка", "sq": "Porosia", "el": "Παραγγελία",
+              "de": "Bestellung", "fr": "Commande", "ru": "Заказ", "uk": "Замовлення", "ar": "طلب",
+              "az": "Sifariş"}
+
+
+def order_word(code: str | None) -> str:
+    return ORDER_WORD.get(code or "", "Order")
+
+
 def is_valid(code: str) -> bool:
     return code in LANGUAGES
 

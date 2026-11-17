@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 from app import languages as L
 from app import meta
 from app.config import get_settings
+from app.whatsapp_link import wa_link
 from app.db import Conversation, Handoff, Order, Product, SessionLocal, Tenant, UsageLog
 from app.prompts import system_prompt
 
@@ -26,7 +27,7 @@ def build_tools(tenant: Tenant) -> list[dict]:
         props[f["key"]] = {"type": "string", "description": f["label"]}
         if f.get("required"):
             required.append(f["key"])
-    return [
+    tools = [
         {"type": "function", "function": {
             "name": "siparis_olustur",
             "description": "Ürün ve zorunlu bilgiler tamamlanıp müşteri onay verdiğinde sipariş oluşturur "
@@ -44,6 +45,20 @@ def build_tools(tenant: Tenant) -> list[dict]:
                 "required": ["sebep", "musteri_dili"]},
         }},
     ]
+    if tenant.customer_whatsapp:
+        tools.append({"type": "function", "function": {
+            "name": "whatsappa_yonlendir",
+            "description": "Satıcının fikri/kararı gereken durumlarda (özel ölçü, pazarlık, toptan, katalog dışı ürün, "
+                           "ürün yorumu, bilinmeyen soru) müşteriye satıcının WhatsApp hattı için hazır mesajlı bir "
+                           "bağlantı üretir. Dönen bağlantıyı müşteriye aynen ilet.",
+            "parameters": {"type": "object", "properties": {
+                "konu": {"type": "string", "description": "Konunun işletme sahibinin dilinde kısa özeti"},
+                "on_mesaj": {"type": "string", "description": "Müşterinin WhatsApp'ta göndereceği hazır mesaj, "
+                                                             "MÜŞTERİNİN DİLİNDE, birinci tekil şahıs, 1-2 cümle"},
+                "musteri_dili": lang_prop},
+                "required": ["konu", "on_mesaj", "musteri_dili"]},
+        }})
+    return tools
 
 
 @dataclass
@@ -85,6 +100,8 @@ class ToolRunner:
             return await self.siparis_olustur(args)
         if name == "insana_aktar":
             return await self.insana_aktar(args.get("sebep", "belirtilmedi"))
+        if name == "whatsappa_yonlendir" and self.tenant.customer_whatsapp:
+            return await self.whatsappa_yonlendir(args.get("konu", ""), args.get("on_mesaj", ""))
         return f"Bilinmeyen araç: {name}"
 
     async def siparis_olustur(self, args: dict) -> str:
@@ -112,7 +129,24 @@ class ToolRunner:
             order.notified = await meta.whatsapp_notify(self.tenant.notify_whatsapp, "\n".join(lines))
             await s.commit()
             self.orders.append(order.id)
-        return f"Sipariş #{order.id} oluşturuldu ve işletmeye iletildi."
+        result = f"Sipariş #{order.id} oluşturuldu ve işletmeye iletildi."
+        if self.tenant.customer_whatsapp:
+            parts = [f"{L.order_word(self.language)} #{order.id}", product, *details.values()]
+            link = wa_link(self.tenant.customer_whatsapp, "\n".join(parts))
+            result += (f" Müşteri siparişini WhatsApp'tan da iletebilir, bu bağlantıyı aynen paylaş: {link}")
+        return result
+
+    async def whatsappa_yonlendir(self, konu: str, on_mesaj: str) -> str:
+        text = on_mesaj.strip() or konu.strip()
+        if self.conversation.customer_username:
+            text += f"\n(Instagram: @{self.conversation.customer_username})"
+        link = wa_link(self.tenant.customer_whatsapp, text)
+        if self.tenant.notify_whatsapp:
+            await meta.whatsapp_notify(
+                self.tenant.notify_whatsapp,
+                f"↪️ WHATSAPP'A YÖNLENDİRİLDİ — {self.tenant.name}\nMüşteri: {self.who}\n{self._lang_line()}\n"
+                f"Konu: {konu}\nMüşteri birazdan {self.tenant.customer_whatsapp} hattına yazabilir.")
+        return f"Bağlantı hazır. Müşteriye satıcının WhatsApp'tan yardımcı olacağını söyle ve bunu aynen ver: {link}"
 
     async def insana_aktar(self, sebep: str) -> str:
         async with SessionLocal() as s:

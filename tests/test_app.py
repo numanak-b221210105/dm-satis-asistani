@@ -289,7 +289,7 @@ def test_prompt_and_tools_include_language_rules():
     from app.prompts import system_prompt
     t = Tenant(name="V", order_fields=DEFAULT_ORDER_FIELDS, languages=["tr", "sr", "ro", "en"], owner_language="tr")
     p = system_prompt(t, [])
-    assert "Srpski" in p and "Română" in p and "Kiril" in p and "Kur çevirisi yapma" in p
+    assert "Srpski" in p and "Română" in p and "Kiril" in p and "kur çevirisi yapma" in p
     tools = {x["function"]["name"]: x["function"]["parameters"] for x in agent.build_tools(t)}
     assert "musteri_dili" in tools["siparis_olustur"]["required"] and "musteri_dili" in tools["insana_aktar"]["required"]
 
@@ -338,3 +338,104 @@ def test_romanian_handoff_and_fallback_reply_language(io, monkeypatch):
     out = asyncio.run(go())
     assert out.startswith("Am transmis")                       # araç turu sınırı → Romence yedek mesaj
     assert "🇷🇴" in io["wa"][0][1] and "Müşteri iade istiyor" in io["wa"][0][1]
+
+
+# ---------------- Para birimi ve WhatsApp yönlendirme ----------------
+
+def test_currency_in_prompt_and_catalog():
+    from app.db import Tenant, Product, DEFAULT_ORDER_FIELDS
+    from app.prompts import system_prompt
+    from app.currencies import format_price
+    assert format_price("120", "EUR") == "120 EUR" and format_price("$99", "EUR") == "$99" and "sorunuz" in format_price("", "EUR")
+    t = Tenant(name="V", order_fields=DEFAULT_ORDER_FIELDS, currency="EUR")
+    p = system_prompt(t, [Product(name="Ceket", price="250", in_stock=True)])
+    assert "Tüm fiyatlar EUR cinsindendir" in p and "Fiyat: 250 EUR" in p
+    with TestClient(app) as c:
+        assert c.post("/admin/tenants", json={"name": "X", "currency": "XYZ"}, headers=H).status_code == 422
+
+
+def test_whatsapp_tool_only_when_customer_number_set():
+    from app.db import Tenant, DEFAULT_ORDER_FIELDS
+    names = lambda t: [x["function"]["name"] for x in agent.build_tools(t)]
+    assert "whatsappa_yonlendir" not in names(Tenant(name="A", order_fields=DEFAULT_ORDER_FIELDS))
+    assert "whatsappa_yonlendir" in names(Tenant(name="B", order_fields=DEFAULT_ORDER_FIELDS, customer_whatsapp="905001112233"))
+
+
+def test_order_gives_customer_whatsapp_link(io, monkeypatch):
+    from urllib.parse import unquote
+    seen = []
+    script = [
+        AIMessage("", tool_calls=[{"name": "siparis_olustur", "id": "1", "args": {
+            "urun_adi": "Kürk Mont", "musteri_dili": "hr", "ad_soyad": "Ana Horvat", "telefon": "+385911234567",
+            "adres": "Ilica 5, Zagreb"}}]),
+        AIMessage("Hvala! Narudžbu možete poslati i na WhatsApp: https://wa.me/..."),
+    ]
+    monkeypatch.setattr(agent, "build_llm", lambda t: FakeLLM(script, seen))
+    with TestClient(app) as c:
+        tid = make_tenant(c, "WA Link", "IG-WL", "tok-wl", "905920000000")
+        c.patch(f"/admin/tenants/{tid}", json={"customer_whatsapp": "905301112233", "languages": ["tr", "hr"]}, headers=H)
+        post(c, "IG-WL", "ana", "Želim kupiti kaput")
+    tool_result = [m for m in seen[1] if m.type == "tool"][0].content
+    assert "https://wa.me/905301112233?text=" in tool_result
+    text = unquote(tool_result.split("text=")[1])
+    assert text.startswith("Narudžba #") and "Kürk Mont" in text and "Ilica 5, Zagreb" in text
+
+
+def test_redirect_to_whatsapp_keeps_bot_active_and_notifies(io, monkeypatch):
+    from urllib.parse import unquote
+    seen = []
+    script = [
+        AIMessage("", tool_calls=[{"name": "whatsappa_yonlendir", "id": "1", "args": {
+            "konu": "Özel ölçü ceket istiyor (kol boyu uzun)", "musteri_dili": "sr",
+            "on_mesaj": "Zdravo, zanima me jakna po meri sa dužim rukavima."}}]),
+        AIMessage("Za to je najbolje da pišete prodavcu na WhatsApp: https://wa.me/..."),
+        AIMessage("Naravno, izvolite!"),
+    ]
+    shared = FakeLLM(script, seen)
+    monkeypatch.setattr(agent, "build_llm", lambda t: shared)
+    with TestClient(app) as c:
+        tid = make_tenant(c, "Yonlendir", "IG-YN", "tok-yn", "905930000000")
+        c.patch(f"/admin/tenants/{tid}", json={"customer_whatsapp": "905301112244"}, headers=H)
+        post(c, "IG-YN", "petar", "Može li jakna po meri?")
+        assert c.get(f"/admin/tenants/{tid}/paused", headers=H).json() == []   # bot susmaz
+        post(c, "IG-YN", "petar", "Hvala, a koliko košta crna?")
+    tool_result = [m for m in seen[0] if m.type == "tool"] or [m for m in seen[1] if m.type == "tool"]
+    link_text = unquote(tool_result[0].content.split("text=")[1])
+    assert link_text.startswith("Zdravo, zanima me jakna") and "@user_petar" in link_text
+    assert any("WHATSAPP'A YÖNLENDİRİLDİ" in t and "Özel ölçü" in t for _, t in io["wa"])
+    assert [t for u, t in io["ig"] if u == "petar"][-1] == "Naravno, izvolite!"
+
+
+# ---------------- Kurulum sihirbazı ----------------
+
+def test_onboarding_build_tenant():
+    from app.onboarding import build_tenant, normalize_phone
+    assert normalize_phone("+90 532 123 45 67") == "905321234567" and normalize_phone("0532 123 45 67") == "905321234567"
+    t = build_tenant({"name": " Vizyon ", "sector": "giyim", "languages": "tr, sr, ro, hr", "currency": "eur",
+                      "shipping": "Sırbistan ve Romanya'ya 5-7 gün, 15 EUR", "returns": "14 gün",
+                      "tone": "samimi", "notify_whatsapp": "0532 111 22 33", "customer_whatsapp": "",
+                      "extra_fields": "hediye paketi, fatura adresi"})
+    keys = [f["key"] for f in t["order_fields"]]
+    assert t["name"] == "Vizyon" and t["currency"] == "EUR" and t["languages"] == ["tr", "sr", "ro", "hr"]
+    assert keys[:2] == ["beden", "boy"] and "hediye_paketi" in keys and keys[-3:] == ["ad_soyad", "telefon", "adres"]
+    assert "Kargo: Sırbistan" in t["policies"] and t["customer_whatsapp"] is None and t["notify_whatsapp"] == "905321112233"
+
+
+def test_onboarding_cli_end_to_end(monkeypatch, capsys):
+    """Komut satırı sihirbazını gerçek API'ye karşı baştan sona çalıştırır."""
+    import importlib, sys as _sys
+    answers = iter(["Balkan Butik", "giyim", "Deri ceketler", "tr,sr,hr", "", "EUR", "Balkanlara 7 gün",
+                    "14 gün iade", "Havale", "", "0532 999 88 77", "0532 999 88 66", "", "e"])
+    monkeypatch.setattr("builtins.input", lambda *_: next(answers))
+    with TestClient(app) as c:
+        import httpx
+        monkeypatch.setattr(httpx, "get", lambda url, headers=None: c.get(url.replace("http://x", ""), headers=headers))
+        monkeypatch.setattr(httpx, "post", lambda url, headers=None, json=None: c.post(url.replace("http://x", ""), headers=headers, json=json))
+        monkeypatch.setattr(_sys, "argv", ["sihirbaz", "http://x", "adm"])
+        spec = importlib.util.spec_from_file_location("sihirbaz", "scripts/kurulum_sihirbazi.py")
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        mod.main()
+        t = [x for x in c.get("/admin/tenants", headers=H).json() if x["name"] == "Balkan Butik"][0]
+    assert "oluşturuldu" in capsys.readouterr().out
+    assert t["currency"] == "EUR" and t["languages"] == ["tr", "sr", "hr"] and t["owner_language"] == "tr"
+    assert t["customer_whatsapp"] == "905329998866" and "Boy (cm)" in [f["label"] for f in t["order_fields"]]
