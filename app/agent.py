@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
+from app import languages as L
 from app import meta
 from app.config import get_settings
 from app.db import Conversation, Handoff, Order, Product, SessionLocal, Tenant, UsageLog
@@ -16,8 +17,11 @@ MAX_TOOL_ROUNDS = 3
 
 def build_tools(tenant: Tenant) -> list[dict]:
     """OpenAI function-calling şemaları. siparis_olustur'un alanları esnafın order_fields ayarından gelir."""
-    props = {"urun_adi": {"type": "string", "description": "Katalogdaki tam ürün adı"}}
-    required = ["urun_adi"]
+    lang_prop = {"type": "string", "description": "Müşterinin yazdığı dilin ISO 639-1 kodu (tr, en, sr, ro...)"}
+    props = {"urun_adi": {"type": "string", "description": "Katalogdaki tam ürün adı (katalogdaki haliyle)"},
+             "musteri_dili": lang_prop,
+             "ozet": {"type": "string", "description": "Siparişin işletme sahibinin dilinde kısa özeti / ek notlar"}}
+    required = ["urun_adi", "musteri_dili"]
     for f in tenant.order_fields:
         props[f["key"]] = {"type": "string", "description": f["label"]}
         if f.get("required"):
@@ -34,8 +38,10 @@ def build_tools(tenant: Tenant) -> list[dict]:
             "description": "Cevaplanamayan soru, şikayet, ısrar veya yetkili talebinde sohbeti işletme "
                            "sahibine aktarır ve acil WhatsApp bildirimi gönderir.",
             "parameters": {"type": "object", "properties": {
-                "sebep": {"type": "string", "description": "Aktarma sebebinin kısa açıklaması"}},
-                "required": ["sebep"]},
+                "sebep": {"type": "string", "description": "Aktarma sebebi ve müşterinin talebinin özeti "
+                                                         "(işletme sahibinin dilinde)"},
+                "musteri_dili": lang_prop},
+                "required": ["sebep", "musteri_dili"]},
         }},
     ]
 
@@ -52,7 +58,29 @@ class ToolRunner:
         c = self.conversation
         return f"@{c.customer_username}" if c.customer_username else f"IG ID {c.customer_id}"
 
+    @property
+    def language(self) -> str | None:
+        return self.conversation.language
+
+    async def _remember_language(self, code) -> None:
+        code = str(code or "").strip().lower()[:8]
+        if not code or code == self.conversation.language:
+            return
+        self.conversation.language = code
+        async with SessionLocal() as s:
+            conv = await s.get(Conversation, self.conversation.id)
+            if conv is not None:
+                conv.language = code
+                await s.commit()
+
+    def _lang_line(self) -> str:
+        own = self.tenant.owner_language or "tr"
+        if not self.language or self.language == own:
+            return f"Dil: {L.label(self.language or own)}"
+        return f"Dil: {L.label(self.language)} — müşteriye bu dilde yazın"
+
     async def run(self, name: str, args: dict) -> str:
+        await self._remember_language(args.pop("musteri_dili", None))
         if name == "siparis_olustur":
             return await self.siparis_olustur(args)
         if name == "insana_aktar":
@@ -61,6 +89,7 @@ class ToolRunner:
 
     async def siparis_olustur(self, args: dict) -> str:
         product = str(args.pop("urun_adi", "")).strip()
+        summary = str(args.pop("ozet", "") or "").strip()
         missing = [f["label"] for f in self.tenant.order_fields
                    if f.get("required") and not str(args.get(f["key"], "")).strip()]
         if not product or missing:
@@ -75,8 +104,10 @@ class ToolRunner:
             s.add(order)
             await s.commit()
             lines = [f"🛍️ YENİ SİPARİŞ #{order.id} — {self.tenant.name}",
-                     f"Müşteri: {self.who}", f"Ürün: {product}"]
+                     f"Müşteri: {self.who}", self._lang_line(), f"Ürün: {product}"]
             lines += [f"{labels[k]}: {v}" for k, v in details.items()]
+            if summary:
+                lines.append(f"Not: {summary}")
             lines.append("Müşteriye Instagram'dan dönüş yapın.")
             order.notified = await meta.whatsapp_notify(self.tenant.notify_whatsapp, "\n".join(lines))
             await s.commit()
@@ -92,7 +123,7 @@ class ToolRunner:
             await s.commit()
         await meta.whatsapp_notify(
             self.tenant.notify_whatsapp,
-            f"🚨 MÜDAHALE GEREKİYOR — {self.tenant.name}\nMüşteri: {self.who}\nSebep: {sebep}\n"
+            f"🚨 MÜDAHALE GEREKİYOR — {self.tenant.name}\nMüşteri: {self.who}\n{self._lang_line()}\nSebep: {sebep}\n"
             f"Asistan bu sohbette durdu. Instagram'dan müşteriye yazabilirsiniz.",
         )
         self.handed_off = True
@@ -151,7 +182,8 @@ async def _run(llm, tenant, runner, messages: list[BaseMessage]) -> str:
             log.info("[%s] Araç: %s %s", tenant.name, call["name"], call["args"])
             result = await runner.run(call["name"], dict(call["args"]))
             messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
-    return "Talebinizi ekibimize ilettim, en kısa sürede dönüş yapacağız 🙏"
+    langs = tenant.languages or L.DEFAULT_LANGUAGES
+    return L.fallback_reply(runner.language, "en" if "en" in langs else langs[0])
 
 
 async def generate_reply(tenant: Tenant, products: list[Product], history, runner: ToolRunner, llm=None) -> str:

@@ -106,14 +106,28 @@ Tek kurulum birçok işletmeye hizmet veriyor. Her işletmenin kataloğu, üslub
 <tr>
 <td valign="top">
 
-### 🔐 Güvenlik
-Instagram token'ları şifreli saklanıyor, webhook imzası doğrulanıyor, aynı mesaj iki kez gelirse bir kez işleniyor.
+### 🌍 Çok dilli
+Müşteriye kendi dilinde cevap veriyor (Türkçe, İngilizce, Sırpça, Romence ve 12 dil daha). Sırpçada müşterinin kullandığı alfabeyi (Latin/Kiril) koruyor. İşletme sahibine bildirimler ise kendi dilinde, müşterinin dili belirtilerek gidiyor.
 
 </td>
 <td valign="top">
 
+### 🔐 Güvenlik
+Instagram token'ları şifreli saklanıyor, webhook imzası doğrulanıyor, aynı mesaj iki kez gelirse bir kez işleniyor.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
 ### 🔄 Kendi bakımını yapar
 Instagram bağlantısını 60 günde bir otomatik yeniliyor. Her işletmenin yapay zeka kullanımını ve maliyetini kaydediyor.
+
+</td>
+<td valign="top">
+
+### 🧾 Hazır sipariş özeti
+Sipariş tamamlanınca işletme sahibine ürün, müşteri bilgileri, müşterinin dili ve kısa bir not içeren düzenli bir özet gidiyor.
 
 </td>
 </tr>
@@ -236,7 +250,7 @@ uvicorn app.main:app --reload                          # → http://localhost:80
 ```
 
 ```bash
-pytest -q        # 14 test · gerçek API'ye bağlanmaz
+pytest -q        # 18 test · gerçek API'ye bağlanmaz
 ```
 
 <details>
@@ -276,6 +290,7 @@ curl -X POST localhost:8000/admin/tenants \
 
 - [x] Çok işletmeli çekirdek ve dinamik sipariş alanları
 - [x] Görsel anlama, token yenileme, kullanım takibi, Alembic, CI
+- [x] Çok dilli destek (müşteri dilinde cevap, esnafa kendi dilinde özet)
 - [ ] Gerçek bir işletmeyle canlı pilot
 - [ ] İşletme paneli ve "Instagram ile bağlan" ile kendi kendine kayıt
 - [ ] Paketler ve ödeme altyapısı

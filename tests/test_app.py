@@ -271,3 +271,70 @@ def test_token_refresh(io, monkeypatch):
     assert "uzak" not in calls                       # süresi uzak olan yenilenmez
     assert asyncio.run(tok(a)) == "eski-yeni"
     assert stats["hata"] >= 1 and any(to == "905800000003" and "süresi dolmak" in t for to, t in io["wa"])
+
+
+# ---------------- Çok dilli destek ----------------
+
+def test_language_settings_validation():
+    with TestClient(app) as c:
+        bad = c.post("/admin/tenants", json={"name": "X", "languages": ["tr", "klingon"]}, headers=H)
+        assert bad.status_code == 422
+        t = c.post("/admin/tenants", json={"name": "Dilli", "languages": ["tr", "sr", "ro", "en", "sr"]}, headers=H).json()
+        assert t["languages"] == ["tr", "sr", "ro", "en"] and t["owner_language"] == "tr"
+        assert any(l["kod"] == "sr" for l in c.get("/admin/languages", headers=H).json())
+
+
+def test_prompt_and_tools_include_language_rules():
+    from app.db import Tenant, DEFAULT_ORDER_FIELDS
+    from app.prompts import system_prompt
+    t = Tenant(name="V", order_fields=DEFAULT_ORDER_FIELDS, languages=["tr", "sr", "ro", "en"], owner_language="tr")
+    p = system_prompt(t, [])
+    assert "Srpski" in p and "Română" in p and "Kiril" in p and "Kur çevirisi yapma" in p
+    tools = {x["function"]["name"]: x["function"]["parameters"] for x in agent.build_tools(t)}
+    assert "musteri_dili" in tools["siparis_olustur"]["required"] and "musteri_dili" in tools["insana_aktar"]["required"]
+
+
+def test_serbian_order_notifies_owner_in_turkish_with_language(io, monkeypatch):
+    script = [
+        AIMessage("", tool_calls=[{"name": "siparis_olustur", "id": "1", "args": {
+            "urun_adi": "Klasik Deri Ceket", "musteri_dili": "sr", "ozet": "Siyah renk istiyor, hediye paketi rica etti",
+            "ad_soyad": "Marko Petrović", "telefon": "+381641234567", "adres": "Bulevar oslobođenja 12, Novi Sad"}}]),
+        AIMessage("Hvala, Marko! Vaša porudžbina je primljena 🙏"),
+    ]
+    monkeypatch.setattr(agent, "build_llm", lambda t: FakeLLM(script))
+    with TestClient(app) as c:
+        tid = make_tenant(c, "Vizyon Test", "IG-SR", "tok-sr", "905900000000")
+        c.patch(f"/admin/tenants/{tid}", json={"languages": ["tr", "sr", "ro", "en"]}, headers=H)
+        post(c, "IG-SR", "marko", "Zdravo, želim crnu kožnu jaknu")
+        orders = c.get(f"/admin/tenants/{tid}/orders", headers=H).json()
+    wa = io["wa"][-1][1]
+    assert "🇷🇸" in wa and "müşteriye bu dilde yazın" in wa
+    assert "Not: Siyah renk istiyor" in wa and "Bulevar oslobođenja 12, Novi Sad" in wa   # adres çevrilmeden
+    assert "musteri_dili" not in orders[0]["detaylar"]
+    assert io["ig"][-1] == ("marko", "Hvala, Marko! Vaša porudžbina je primljena 🙏")
+    from app.db import SessionLocal, Conversation
+    from sqlalchemy import select
+    async def lang():
+        async with SessionLocal() as s:
+            return (await s.scalar(select(Conversation).where(Conversation.customer_id == "marko"))).language
+    assert asyncio.run(lang()) == "sr"
+
+
+def test_romanian_handoff_and_fallback_reply_language(io, monkeypatch):
+    from app.db import Tenant, Conversation, DEFAULT_ORDER_FIELDS
+    loop_call = AIMessage("", tool_calls=[{"name": "insana_aktar", "id": "x",
+                                          "args": {"sebep": "Müşteri iade istiyor", "musteri_dili": "ro"}}])
+    class Loop:
+        async def ainvoke(self, m): return loop_call
+    with TestClient(app) as c:
+        tid = make_tenant(c, "Ro Test", "IG-RO", "tok-ro", "905910000000")
+    async def go():
+        from app.db import SessionLocal, get_or_create_conversation
+        async with SessionLocal() as s:
+            t = await s.get(Tenant, tid)
+            conv = await get_or_create_conversation(s, tid, "ioana")
+        r = agent.ToolRunner(t, conv)
+        return await agent.generate_reply(t, [], [], r, llm=Loop())
+    out = asyncio.run(go())
+    assert out.startswith("Am transmis")                       # araç turu sınırı → Romence yedek mesaj
+    assert "🇷🇴" in io["wa"][0][1] and "Müşteri iade istiyor" in io["wa"][0][1]

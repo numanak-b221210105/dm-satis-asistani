@@ -46,8 +46,20 @@ class Tenant(Base):
 
     notify_whatsapp: Mapped[str] = mapped_column(String(20), default="")       # 90XXXXXXXXXX
     humanizer_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Dil ayarları: müşterilere hangi dillerde hizmet verilir, esnafa bildirimler hangi dilde gider
+    languages: Mapped[list | None] = mapped_column(JSON, nullable=True)            # ["tr","en","sr","ro"]
+    owner_language: Mapped[str | None] = mapped_column(String(8), nullable=True)   # "tr"
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+def tenant_languages(t: "Tenant") -> list[str]:
+    from app.languages import DEFAULT_LANGUAGES
+    return list(t.languages or DEFAULT_LANGUAGES)
+
+
+def tenant_owner_language(t: "Tenant") -> str:
+    return t.owner_language or "tr"
 
 
 class Product(Base):
@@ -70,6 +82,7 @@ class Conversation(Base):
     customer_id: Mapped[str] = mapped_column(String(64))
     customer_username: Mapped[str | None] = mapped_column(String(128), nullable=True)
     bot_paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    language: Mapped[str | None] = mapped_column(String(8), nullable=True)   # Müşterinin son kullandığı dil
     paused_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 

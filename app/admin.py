@@ -3,9 +3,10 @@ o zamana kadar esnaflar bu uç noktalarla kurulur."""
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 
+from app import languages as L
 from app.config import get_settings
 from app.crypto import encrypt
 from app.db import DEFAULT_ORDER_FIELDS, Conversation, Order, Product, SessionLocal, Tenant, UsageLog
@@ -38,6 +39,25 @@ class TenantIn(BaseModel):
     order_fields: list[OrderField] | None = None
     humanizer_enabled: bool = True
     active: bool = True
+    languages: list[str] | None = None        # Ör. ["tr", "en", "sr", "ro"]
+    owner_language: str | None = None         # Bildirim özetlerinin dili (varsayılan tr)
+
+    @field_validator("languages")
+    @classmethod
+    def _langs(cls, v):
+        if v is None:
+            return v
+        bad = [c for c in v if not L.is_valid(c)]
+        if bad or not v:
+            raise ValueError(f"Geçersiz dil kodu: {bad}. Desteklenenler: {', '.join(L.LANGUAGES)}")
+        return list(dict.fromkeys(v))
+
+    @field_validator("owner_language")
+    @classmethod
+    def _owner(cls, v):
+        if v is not None and not L.is_valid(v):
+            raise ValueError(f"Geçersiz dil kodu: {v}")
+        return v
 
 
 class TenantPatch(BaseModel):
@@ -50,6 +70,25 @@ class TenantPatch(BaseModel):
     order_fields: list[OrderField] | None = None
     humanizer_enabled: bool | None = None
     active: bool | None = None
+    languages: list[str] | None = None
+    owner_language: str | None = None
+
+    @field_validator("languages")
+    @classmethod
+    def _langs(cls, v):
+        if v is None:
+            return v
+        bad = [c for c in v if not L.is_valid(c)]
+        if bad or not v:
+            raise ValueError(f"Geçersiz dil kodu: {bad}. Desteklenenler: {', '.join(L.LANGUAGES)}")
+        return list(dict.fromkeys(v))
+
+    @field_validator("owner_language")
+    @classmethod
+    def _owner(cls, v):
+        if v is not None and not L.is_valid(v):
+            raise ValueError(f"Geçersiz dil kodu: {v}")
+        return v
 
 
 class InstagramConnect(BaseModel):
@@ -72,6 +111,7 @@ def tenant_out(t: Tenant) -> dict:
     return {"id": t.id, "name": t.name, "sector": t.sector, "description": t.description,
             "policies": t.policies, "tone": t.tone, "notify_whatsapp": t.notify_whatsapp,
             "order_fields": t.order_fields, "humanizer_enabled": t.humanizer_enabled, "active": t.active,
+            "languages": t.languages or L.DEFAULT_LANGUAGES, "owner_language": t.owner_language or "tr",
             "instagram": {"bagli": bool(t.ig_token_enc), "hesap_id": t.ig_account_id,
                           "kullanici_adi": t.ig_username,
                           "token_bitis": t.ig_token_expires_at.isoformat() if t.ig_token_expires_at else None}}
@@ -201,3 +241,8 @@ async def usage(tenant_id: int, days: int = 30):
                                       func.coalesce(func.sum(UsageLog.output_tokens), 0))
                                .where(UsageLog.tenant_id == tenant_id, UsageLog.created_at >= since))).one()
     return {"gun": days, "mesaj_sayisi": row[0], "input_tokens": row[1], "output_tokens": row[2]}
+
+
+@router.get("/languages", tags=["admin"])
+async def supported_languages():
+    return [{"kod": k, "ad": v[0], "bayrak": v[1]} for k, v in L.LANGUAGES.items()]
