@@ -9,11 +9,12 @@
   <img src="https://img.shields.io/badge/GPT--4o-vision%20%2B%20tools-412991?logo=openai&logoColor=white" alt="GPT-4o">
   <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/lisans-tüm%20hakları%20saklı-lightgrey" alt="Lisans">
+  <img src="https://img.shields.io/badge/durum-geliştirme%20aşaması-orange" alt="Durum">
 </p>
 
 <p align="center">
   <b>Instagram'dan satış yapan işletmeler için yapay zeka destekli DM satış asistanı.</b><br>
-  Müşteriye işletmenin kendi kataloğuyla cevap verir, sipariş bilgilerini toplar ve siparişi WhatsApp'tan işletme sahibine iletir.
+  Müşteriye kendi dilinde, işletmenin kataloğuyla cevap verir; sipariş bilgilerini toplar ve siparişi WhatsApp'tan işletme sahibine iletir.
 </p>
 
 <p align="center">
@@ -22,6 +23,7 @@
   <a href="#sektorler">Sektörler</a> •
   <a href="#mimari">Mimari</a> •
   <a href="#kurulum">Kurulum</a> •
+  <a href="#urun">Ürün vizyonu</a> •
   <a href="#yol-haritasi">Yol haritası</a>
 </p>
 
@@ -54,7 +56,9 @@ satış yapmak yerine mesaj yazarak geçiriyor.
 | **2** | 🧠 **Asistan anlar** | Mesajı okur, fotoğraftaki ürünü tanır, işletmenin kataloğundan en uygun ürünü bulur. |
 | **3** | 📝 **Bilgileri toplar** | İşletmenin belirlediği bilgileri (beden, adres, tarih...) doğal bir sohbet içinde sorar. |
 | **4** | 📲 **Siparişi iletir** | Sipariş tamamlanınca işletme sahibine WhatsApp'tan hazır bir sipariş özeti gönderir. |
-| **5** | 🙋 **Gerekirse insana devreder** | Şikayet, iade ya da bilmediği bir soru gelirse sohbeti işletme sahibine aktarır ve kendisi susar. |
+| **5** | 🙋 **Gerektiğinde satıcıya bırakır** | Özel ölçü, pazarlık gibi satıcının kararı gereken konularda müşteriyi hazır mesajla WhatsApp'a yönlendirir. Şikayet ya da iade gelirse sohbeti işletme sahibine bırakıp susar. |
+
+> 🌍 Müşteri hangi dilde yazarsa asistan o dilde cevap veriyor. İşletme sahibine giden özetler ise her zaman sahibinin kendi dilinde.
 
 <a id="ozellikler"></a>
 
@@ -297,6 +301,53 @@ curl -X POST localhost:8000/admin/tenants \
 
 </details>
 
+<a id="urun"></a>
+
+## 📱 Ürün vizyonu
+
+Hedef, teknik bilgisi olmayan bir esnafın **5 dakikada kendi başına kurup** telefonundan yönetebileceği bir abonelik ürünü.
+
+```mermaid
+flowchart LR
+    subgraph kanallar["Kanallar"]
+        IG["📸 Instagram ✅"]
+        TT["🎵 TikTok ⏳"]
+    end
+    subgraph cekirdek["🧠 Asistan çekirdeği ✅"]
+        AI["Çok dilli asistan<br/>katalog · sipariş · yönlendirme"]
+    end
+    subgraph sahip["İşletme sahibi"]
+        WA["📲 WhatsApp bildirimleri ✅"]
+        WEB["🖥️ Web paneli ⏳"]
+        APP["📱 iOS / Android uygulaması ⏳"]
+    end
+    IG --> AI
+    TT --> AI
+    AI --> WA
+    AI <--> WEB
+    AI <--> APP
+```
+
+| | Esnafın deneyimi |
+|---|---|
+| **1. Kaydol** | Uygulamayı indir → "Instagram ile bağlan" → tek dokunuşla hesap bağlanır |
+| **2. Kur** | Sihirbaz 10 soru sorar: sektör, diller, para birimi, kargo, iade... |
+| **3. Kataloğu ekle** | Instagram gönderilerinden ürünler otomatik çekilir, fiyatı yazmak yeterli |
+| **4. Kullan** | Siparişler bildirim olarak gelir, sohbetler uygulamada görünür, istenen an devralınır |
+
+**Planlanan paketler** *(taslak)*
+
+| | Başlangıç | Profesyonel | İşletme |
+|---|:-:|:-:|:-:|
+| Aylık sohbet | 300 | 1.500 | Sınırsız* |
+| Instagram hesabı | 1 | 1 | 3 |
+| Dil desteği | 2 dil | Tümü | Tümü |
+| Görsel anlama | — | ✅ | ✅ |
+| WhatsApp yönlendirme | ✅ | ✅ | ✅ |
+| TikTok | — | — | ✅ |
+
+<sub>* Adil kullanım sınırıyla. Fiyatlandırma, kullanım takibinden gelen gerçek maliyet verisine göre belirlenecek.</sub>
+
 ## 🧰 Teknolojiler
 
 | Katman | Teknoloji |
@@ -307,25 +358,39 @@ curl -X POST localhost:8000/admin/tenants \
 | Entegrasyonlar | Instagram Graph API · WhatsApp Cloud API |
 | Güvenlik | HMAC-SHA256 webhook doğrulama · Fernet şifreleme |
 | DevOps | Docker · Docker Compose · GitHub Actions |
+| Planlanan | Web paneli · React Native (Expo) mobil uygulama · Redis kuyruk |
 
 <a id="yol-haritasi"></a>
 
 ## 🗺️ Yol haritası
 
-- [x] Çok işletmeli çekirdek ve dinamik sipariş alanları
-- [x] Görsel anlama, token yenileme, kullanım takibi, Alembic, CI
-- [x] Çok dilli destek (müşteri dilinde cevap, esnafa kendi dilinde özet)
+**Faz 1: Çekirdek** ✅
+- [x] Çok işletmeli yapı, dinamik sipariş alanları, uçtan uca testler ve CI
+- [x] Görsel anlama, token yenileme, kullanım takibi, Alembic
+- [x] Çok dilli destek (16 dil, Sırpçada Latin/Kiril alfabesi)
 - [x] Para birimi seçimi, WhatsApp yönlendirme, kurulum sihirbazı
-- [ ] TikTok DM kanalı (TikTok Business Messaging API)
-- [ ] Gerçek bir işletmeyle canlı pilot
-- [ ] İşletme paneli ve "Instagram ile bağlan" ile kendi kendine kayıt
-- [ ] Paketler ve ödeme altyapısı
-- [ ] Kuyruk tabanlı işleme (Redis) ile yatay ölçekleme
-- [ ] Meta App Review ve genel kullanıma açılış
 
-> **Bilinen sınırlar:** Mesajlar şimdilik sunucunun kendi içinde işleniyor. Sunucu tam işlem sırasında yeniden
-> başlarsa o mesaj cevapsız kalabiliyor; kuyruk altyapısı yol haritasında. Gerçek Meta ortamında uçtan uca test
-> henüz yapılmadı.
+**Faz 2: Canlı pilot** ⏳
+- [ ] Meta uygulaması, gerçek bir işletmeyle (Vizyon Pelle Fur) canlı test
+- [ ] Gerçek sohbetlerle istem (prompt) iyileştirme ve kalite ölçümü
+
+**Faz 3: Esnafın kendi başına kullanabileceği ürün**
+- [ ] "Instagram ile bağlan" (OAuth) ile tek dokunuşla kayıt
+- [ ] Web paneli: sohbetler, siparişler, katalog, ayarlar
+- [ ] Instagram gönderilerinden katalog içe aktarma
+- [ ] KVKK/GDPR metinleri, Meta veri silme bağlantısı
+
+**Faz 4: Mobil ve abonelik**
+- [ ] iOS / Android uygulaması ve push bildirimleri
+- [ ] Abonelik paketleri ve ödeme altyapısı (web + mağaza içi satın alma)
+
+**Faz 5: Ölçek**
+- [ ] TikTok DM kanalı
+- [ ] Kuyruk tabanlı işleme (Redis) ve yatay ölçekleme
+
+> **Bilinen sınırlar:** Gerçek Meta ortamında uçtan uca test henüz yapılmadı. İşletme ekleme şu an teknik bilgi
+> gerektiriyor (komut satırı sihirbazı ya da API). Mesajlar sunucunun kendi içinde işleniyor; sunucu tam işlem
+> sırasında yeniden başlarsa o mesaj cevapsız kalabiliyor.
 
 ## 📄 Lisans
 
